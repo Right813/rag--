@@ -24,6 +24,7 @@ class DocumentRecord:
     size_bytes: int
     raw_path: str
     department: str = ""
+    category: str = "medical_document"
     access_level: str = "internal"
     status: str = "processing"
     chunk_count: int = 0
@@ -42,12 +43,18 @@ class Chunk:
     filename: str
     version: str
     file_type: str
+    title: str = ""
+    category: str = "medical_document"
     page: int | None = None
     chapter: str = ""
     section: str = ""
+    chunk_index: int = 0
     department: str = ""
     access_level: str = "internal"
     source: str = "document"
+    created_at: str = ""
+    updated_at: str = ""
+    status: str = "active"
     entity: str = ""
     relation: str = ""
     value: str = ""

@@ -13,6 +13,7 @@ from app.evaluation.metrics import evaluate_ranking
 class EvaluationCase:
     query: str
     relevant_ids: frozenset[str]
+    rewritten_query: str | None = None
 
 
 def load_dataset(path: str | Path) -> list[EvaluationCase]:
@@ -33,10 +34,12 @@ def load_dataset(path: str | Path) -> list[EvaluationCase]:
                 relevant_values.extend(values)
         if not relevant_values:
             raise ValueError(f"评测问题缺少相关 ID：{row['query']}")
+        rewritten_value = row.get("rewritten_query") or row.get("rewrite_query")
         cases.append(
             EvaluationCase(
                 query=str(row["query"]).strip(),
                 relevant_ids=frozenset(str(value) for value in relevant_values),
+                rewritten_query=str(rewritten_value).strip() if rewritten_value else None,
             )
         )
     return cases

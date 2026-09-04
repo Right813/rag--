@@ -32,6 +32,7 @@ class DocumentEvidence(Evidence):
     document_id: str | None = None
     filename: str | None = None
     version: str | None = None
+    category: str = "medical_document"
     page: int | None = None
     chapter: str = ""
     section: str = ""
@@ -41,6 +42,8 @@ class DocumentEvidence(Evidence):
 class ChatRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     session_id: str | None = Field(default=None, max_length=64)
+    access_levels: list[str] = Field(default_factory=list)
+    department: str | None = Field(default=None, max_length=100)
 
 
 class ChatResponse(BaseModel):

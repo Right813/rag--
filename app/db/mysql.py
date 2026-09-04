@@ -23,12 +23,13 @@ class Database:
 
     def initialize(self) -> bool:
         try:
-            if self.settings.sqlalchemy_url.startswith("mysql"):
+            sqlalchemy_url = self.settings.sqlalchemy_url
+            if sqlalchemy_url.startswith("mysql"):
                 self._ensure_mysql_database()
-            self.engine = self._create_engine(self.settings.sqlalchemy_url)
+            self.engine = self._create_engine(sqlalchemy_url)
             Base.metadata.create_all(self.engine)
             self.available = True
-            self.backend = "mysql" if self.settings.sqlalchemy_url.startswith("mysql") else "sqlite"
+            self.backend = self._backend_name(sqlalchemy_url)
             return True
         except Exception as exc:
             logger.warning("Primary database unavailable: %s", exc)
@@ -58,6 +59,14 @@ class Database:
         else:
             kwargs["pool_recycle"] = 280
         return create_engine(url, **kwargs)
+
+    @staticmethod
+    def _backend_name(url: str) -> str:
+        if url.startswith("mysql"):
+            return "mysql"
+        if url.startswith("postgresql") or url.startswith("postgres"):
+            return "postgresql"
+        return "sqlite"
 
     def _ensure_mysql_database(self) -> None:
         database_name = self.settings.mysql_database.replace("`", "")
@@ -182,4 +191,3 @@ class Database:
     def close(self) -> None:
         if self.engine is not None:
             self.engine.dispose()
-

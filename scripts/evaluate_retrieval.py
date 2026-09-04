@@ -22,6 +22,12 @@ def main() -> None:
         default=None,
         help="Fusion 策略，默认读取环境配置",
     )
+    parser.add_argument(
+        "--mode",
+        choices=("dense", "bm25", "hybrid"),
+        default="hybrid",
+        help="召回模式，支持 Dense、BM25 或 Hybrid",
+    )
     args = parser.parse_args()
     dataset_path = Path(args.dataset)
     if not dataset_path.is_absolute():
@@ -30,9 +36,15 @@ def main() -> None:
     application = create_app(get_settings())
     application.state.repository.initialize()
     service = get_document_service(application.state.qa_service)
-    service.refresh_legacy()
+    service.initialize()
     metrics = evaluate_retrieval(
-        lambda query, top_k: service.search(query, top_k=top_k, strategy=args.strategy, rerank=True),
+        lambda query, top_k: service.search(
+            query,
+            top_k=top_k,
+            mode=args.mode,
+            strategy=args.strategy,
+            rerank=args.mode == "hybrid",
+        ),
         cases,
     )
     print(json.dumps(metrics, ensure_ascii=False, indent=2))

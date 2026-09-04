@@ -11,6 +11,7 @@ from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.db.mysql import Database
 from app.db.redis import Cache
+from app.document.service import DocumentService
 from app.kg.neo4j_client import Neo4jClient
 from app.kg.repository import KnowledgeRepository
 from app.services.entity_service import EntityService
@@ -46,14 +47,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         intent_service,
         llm_service,
     )
+    document_service = DocumentService(
+        runtime_settings,
+        repository,
+        project_root,
+    )
+    qa_service.document_service = document_service
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         database.initialize()
         cache.initialize()
         repository.initialize()
+        document_service.initialize()
         app.state.ready = True
         yield
+        document_service.close()
         cache.close()
         database.close()
         neo4j_client.close()
@@ -82,6 +91,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.intent_service = intent_service
     app.state.llm_service = llm_service
     app.state.qa_service = qa_service
+    app.state.document_service = document_service
     app.state.ready = False
     app.include_router(router, prefix=runtime_settings.api_prefix)
 
@@ -90,14 +100,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health() -> dict:
         component_status = {
             "api": "ok",
-            "mysql": "ok" if database.backend == "mysql" else database.backend,
+            "mysql": "ok" if database.backend in {"mysql", "postgresql"} else database.backend,
             "redis": "ok" if cache.available else "memory-fallback",
             "neo4j": "ok" if neo4j_client.available else "memory-fallback",
+            "milvus": document_service.retriever.vector_status,
             "llm": llm_service.status,
             "ner": "dictionary-matcher",
         }
-        degraded_components = {"mysql", "neo4j"} - {
-            key for key, value in component_status.items() if value in {"ok", "sqlite", "redis", "neo4j"}
+        healthy_values = {"ok", "sqlite", "redis", "neo4j", "disabled", "ready"}
+        degraded_components = {
+            key for key, value in component_status.items() if key in {"mysql", "neo4j", "milvus"} and value not in healthy_values
         }
         return {
             "status": "degraded" if degraded_components else "ok",

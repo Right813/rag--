@@ -13,6 +13,8 @@ def _document_client(tmp_path):
         fallback_database_path=str(tmp_path / "fallback.db"),
         redis_enabled=False,
         neo4j_enabled=False,
+        milvus_enabled=False,
+        embedding_model="",
         llm_base_url="",
         admin_token="",
         knowledge_store_path=str(tmp_path / "knowledge_store.json"),
@@ -135,3 +137,28 @@ def test_document_mutations_invalidate_cached_answers(tmp_path):
         assert second_answer.status_code == 200
         assert second_answer.json()["citations"][0]["version"] == "v2"
         assert "300万元" in second_answer.json()["answer"]
+
+
+def test_stream_chat_respects_document_access_filters(tmp_path):
+    with _document_client(tmp_path) as client:
+        uploaded = client.post(
+            "/api/v1/documents/upload",
+            files={"file": ("restricted.txt", b"SUP-STREAM-001 is restricted procurement guidance.", "text/plain")},
+            data={"access_level": "restricted"},
+        )
+        assert uploaded.status_code == 200
+        document_id = uploaded.json()["document"]["document_id"]
+
+        denied = client.post(
+            "/api/v1/chat/stream",
+            json={"query": "SUP-STREAM-001", "access_levels": ["public"]},
+        )
+        assert denied.status_code == 200
+        assert document_id not in denied.text
+
+        allowed = client.post(
+            "/api/v1/chat/stream",
+            json={"query": "SUP-STREAM-001", "access_levels": ["restricted"]},
+        )
+        assert allowed.status_code == 200
+        assert document_id in allowed.text

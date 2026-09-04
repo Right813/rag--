@@ -18,6 +18,7 @@ def build_citations(results: list[RetrievalResult]) -> list[dict[str, Any]]:
                 "document": chunk.filename,
                 "filename": chunk.filename,
                 "version": chunk.version,
+                "category": chunk.category,
                 "page": chunk.page,
                 "chapter": chunk.chapter,
                 "section": chunk.section,

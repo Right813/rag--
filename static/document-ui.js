@@ -4,6 +4,7 @@
     panel: document.getElementById("documentsPanel"),
     token: document.getElementById("adminTokenInput"),
     department: document.getElementById("documentDepartmentInput"),
+    category: document.getElementById("documentCategoryInput"),
     access: document.getElementById("documentAccessInput"),
     version: document.getElementById("documentVersionInput"),
     upload: document.getElementById("documentUploadInput"),
@@ -97,12 +98,13 @@
       const status = statusInfo(record.status);
       const metadata = [
         record.department || "未设置部门",
+        record.category || "未分类",
         `版本 ${record.version || "v1"}`,
         `${record.chunk_count || 0} 个切片`,
         formatBytes(record.size_bytes),
         formatDate(record.updated_at),
       ].filter(Boolean);
-      return `<article class="document-item"><div class="document-icon">${escapeHtml((record.file_type || "doc").slice(0, 4).toUpperCase())}</div><div class="document-main"><div class="document-title-row"><strong title="${escapeHtml(record.filename)}">${escapeHtml(record.filename)}</strong><span class="document-status ${status.className}">${status.label}</span></div><div class="document-meta">${metadata.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</div>${record.error ? `<p class="document-error">${escapeHtml(record.error)}</p>` : ""}</div><div class="document-item-actions"><button type="button" class="text-button" data-document-action="reindex" data-document-id="${escapeHtml(record.document_id)}" ${record.status === "processing" ? "disabled" : ""}>重索引</button><button type="button" class="text-button danger" data-document-action="delete" data-document-id="${escapeHtml(record.document_id)}">删除</button></div></article>`;
+      return `<article class="document-item"><div class="document-icon">${escapeHtml((record.file_type || "doc").slice(0, 4).toUpperCase())}</div><div class="document-main"><div class="document-title-row"><strong title="${escapeHtml(record.filename)}">${escapeHtml(record.filename)}</strong><span class="document-status ${status.className}">${status.label}</span></div><div class="document-meta">${metadata.map((value) => `<span>${escapeHtml(value)}</span>`).join("")}</div>${record.error ? `<p class="document-error">${escapeHtml(record.error)}</p>` : ""}</div><div class="document-item-actions">${record.status === "archived" ? `<button type="button" class="text-button" data-document-action="activate" data-document-id="${escapeHtml(record.document_id)}">切换为当前版本</button>` : ""}<button type="button" class="text-button" data-document-action="reindex" data-document-id="${escapeHtml(record.document_id)}" ${record.status === "processing" ? "disabled" : ""}>重索引</button><button type="button" class="text-button danger" data-document-action="delete" data-document-id="${escapeHtml(record.document_id)}">删除</button></div></article>`;
     }).join("");
   }
 
@@ -141,6 +143,7 @@
     const formData = new FormData();
     formData.append("file", file);
     formData.append("department", ui.department.value.trim());
+    formData.append("category", ui.category.value.trim());
     formData.append("access_level", ui.access.value);
     formData.append("version", ui.version.value.trim());
     ui.uploadButton.disabled = true;
@@ -164,6 +167,16 @@
       await Promise.all([loadDocuments(), loadStats()]);
     } catch (error) {
       notify(error.message || "重索引失败");
+    }
+  }
+
+  async function activateDocument(documentId) {
+    try {
+      await requestJson(`/api/v1/documents/${encodeURIComponent(documentId)}/activate`, { method: "POST" });
+      notify("文档版本已切换");
+      await Promise.all([loadDocuments(), loadStats()]);
+    } catch (error) {
+      notify(error.message || "版本切换失败");
     }
   }
 
@@ -233,6 +246,7 @@
     if (action === "pick") openPicker();
     if (action === "refresh") loadDocuments();
     if (action === "reindex") reindexDocument(button.dataset.documentId);
+    if (action === "activate") activateDocument(button.dataset.documentId);
     if (action === "delete") deleteDocument(button.dataset.documentId);
   });
   loadDocuments();

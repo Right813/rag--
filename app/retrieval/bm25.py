@@ -1,3 +1,4 @@
+import hashlib
 import math
 from collections import Counter
 
@@ -50,3 +51,42 @@ class BM25Retriever:
                 scored.append((score, chunk))
         scored.sort(key=lambda item: item[0], reverse=True)
         return [RetrievalResult(chunk=chunk, bm25_score=score) for score, chunk in scored[:top_k]]
+
+    def sparse_vector(self, text: str) -> dict[int, float]:
+        frequency = Counter(tokenize(text))
+        if not frequency:
+            return {}
+        document_count = len(self.chunks)
+        document_length = sum(frequency.values())
+        vector: dict[int, float] = {}
+        for token, term_frequency in frequency.items():
+            inverse_frequency = self._inverse_frequency(token, document_count)
+            denominator = term_frequency + self.k1 * (
+                1 - self.b + self.b * document_length / max(self.average_length, 1)
+            )
+            weight = inverse_frequency * (term_frequency * (self.k1 + 1)) / max(denominator, 1e-12)
+            if weight > 0:
+                vector[self._token_id(token)] = float(weight)
+        return vector
+
+    def query_sparse_vector(self, text: str) -> dict[int, float]:
+        frequency = Counter(tokenize(text))
+        if not frequency:
+            return {}
+        document_count = len(self.chunks)
+        return {
+            self._token_id(token): float(self._inverse_frequency(token, document_count) * count)
+            for token, count in frequency.items()
+            if self._inverse_frequency(token, document_count) > 0
+        }
+
+    def _inverse_frequency(self, token: str, document_count: int) -> float:
+        if document_count <= 0:
+            return 0.0
+        document_frequency = self.document_frequencies.get(token, 0)
+        return math.log(1 + (document_count - document_frequency + 0.5) / (document_frequency + 0.5))
+
+    @staticmethod
+    def _token_id(token: str) -> int:
+        digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
+        return int.from_bytes(digest, "big") % 2_000_000_000 + 1

@@ -59,7 +59,10 @@ class StructureAwareChunker:
             if current_text:
                 chunks.extend(self._make_chunks("\n".join(current_text), document, page.page, chapter, section))
             current_chapter, current_section = chapter, section
-        return [chunk for group in chunks for chunk in (group if isinstance(group, list) else [group]) if chunk.content]
+        flattened = [chunk for group in chunks for chunk in (group if isinstance(group, list) else [group]) if chunk.content]
+        for chunk_index, chunk in enumerate(flattened):
+            chunk.chunk_index = chunk_index
+        return flattened
 
     def _make_chunks(self, text: str, document: DocumentRecord, page: int | None, chapter: str, section: str) -> list[Chunk]:
         return [
@@ -70,10 +73,15 @@ class StructureAwareChunker:
                 filename=document.filename,
                 version=document.version,
                 file_type=document.file_type,
+                title=document.filename,
+                category=document.category,
                 page=page,
                 chapter=chapter,
                 section=section,
                 department=document.department,
+                created_at=document.created_at,
+                updated_at=document.updated_at,
+                status=document.status,
                 access_level=document.access_level,
             )
         ]

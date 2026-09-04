@@ -21,11 +21,11 @@ def test_ranking_metrics_use_relevant_ids_and_cutoff():
 def test_retrieval_evaluation_loads_dataset_and_scores_results(tmp_path):
     dataset_path = tmp_path / "questions.json"
     dataset_path.write_text(
-        '{"questions": [{"query": "编号", "relevant_chunk_ids": ["chunk-1"]}]}',
+        '{"questions": [{"query": "编号", "rewritten_query": "文档编号", "relevant_chunk_ids": ["chunk-1"]}]}',
         encoding="utf-8",
     )
     cases = load_dataset(dataset_path)
-    assert cases == [EvaluationCase(query="编号", relevant_ids=frozenset({"chunk-1"}))]
+    assert cases == [EvaluationCase(query="编号", relevant_ids=frozenset({"chunk-1"}), rewritten_query="文档编号")]
 
     metrics = evaluate_retrieval(
         lambda query, top_k: [{"chunk_id": "chunk-1"}],

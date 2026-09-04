@@ -44,7 +44,8 @@ class Settings(BaseSettings):
     max_upload_size_bytes: int = 20 * 1024 * 1024
     chunk_size: int = 600
     chunk_overlap: int = 80
-    embedding_model: str = ""
+    embedding_model: str = "BAAI/bge-m3"
+    embedding_dimension: int = 1024
     reranker_model: str = ""
     dense_top_k: int = 20
     bm25_top_k: int = 20
@@ -54,6 +55,12 @@ class Settings(BaseSettings):
     max_context_tokens: int = 6000
     no_answer_threshold: float = Field(default=0.14, ge=0, le=1)
     ocr_enabled: bool = True
+    milvus_enabled: bool = True
+    milvus_uri: str = "http://127.0.0.1:19530"
+    milvus_token: str = ""
+    milvus_db_name: str = "default"
+    milvus_collection: str = "medical_knowledge_chunks"
+    milvus_timeout_seconds: float = 10.0
     knowledge_store_path: str = "data/knowledge_store.json"
 
     model_config = SettingsConfigDict(

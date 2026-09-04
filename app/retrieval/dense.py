@@ -11,45 +11,42 @@ logger = logging.getLogger(__name__)
 
 
 class DenseRetriever:
-    def __init__(self, model_name: str = "", dimension: int = 384) -> None:
+    def __init__(self, model_name: str = "", dimension: int = 1024) -> None:
         self.model_name = model_name.strip()
         self.dimension = dimension
         self.model: Any | None = None
         self.chunks: list[Chunk] = []
         self.vectors: list[list[float]] = []
         self.provider = "hash"
-        self._faiss_index: Any | None = None
+        self._vector_cache: dict[str, tuple[str, list[float]]] = {}
+        self._model_attempted = False
 
     def build(self, chunks: list[Chunk]) -> None:
         self.chunks = list(chunks)
         self._load_model()
-        self.vectors = self._encode([chunk.content for chunk in self.chunks])
-        self._faiss_index = None
-        if self.provider == "bge-m3":
-            try:
-                import faiss
-                import numpy as np
+        next_cache: dict[str, tuple[str, list[float]]] = {}
+        missing: list[Chunk] = []
+        for chunk in self.chunks:
+            fingerprint = self._fingerprint(chunk.content)
+            cached = self._vector_cache.get(chunk.chunk_id)
+            if cached is not None and cached[0] == fingerprint:
+                next_cache[chunk.chunk_id] = cached
+            else:
+                missing.append(chunk)
+        if missing:
+            encoded = self._encode([chunk.content for chunk in missing])
+            for chunk, vector in zip(missing, encoded):
+                next_cache[chunk.chunk_id] = (self._fingerprint(chunk.content), vector)
+        self._vector_cache = next_cache
+        self.vectors = [self._vector_cache[chunk.chunk_id][1] for chunk in self.chunks]
 
-                matrix = np.asarray(self.vectors, dtype="float32")
-                self._faiss_index = faiss.IndexFlatIP(matrix.shape[1])
-                self._faiss_index.add(matrix)
-            except Exception as exc:
-                logger.info("FAISS unavailable, using in-process vector search: %s", exc)
+    def encode(self, text: str) -> list[float]:
+        return self._encode([text])[0]
 
     def search(self, query: str, top_k: int = 20) -> list[RetrievalResult]:
         if not self.chunks:
             return []
         query_vector = self._encode([query])[0]
-        if self._faiss_index is not None:
-            try:
-                distances, indices = self._faiss_index.search(query_vector, min(top_k, len(self.chunks)))
-                return [
-                    RetrievalResult(chunk=self.chunks[int(index)], dense_score=float(score))
-                    for score, index in zip(distances[0], indices[0])
-                    if int(index) >= 0
-                ]
-            except Exception as exc:
-                logger.debug("FAISS search failed: %s", exc)
         scored = [
             (self._cosine(query_vector, vector), chunk)
             for chunk, vector in zip(self.chunks, self.vectors)
@@ -58,6 +55,9 @@ class DenseRetriever:
         return [RetrievalResult(chunk=chunk, dense_score=score) for score, chunk in scored[:top_k]]
 
     def _load_model(self) -> None:
+        if self._model_attempted:
+            return
+        self._model_attempted = True
         if not self.model_name:
             self.provider = "hash"
             self.model = None
@@ -76,7 +76,10 @@ class DenseRetriever:
         if self.model is not None:
             try:
                 encoded = self.model.encode(texts, normalize_embeddings=True)
-                return [self._normalize([float(value) for value in row]) for row in encoded]
+                vectors = [self._normalize([float(value) for value in row]) for row in encoded]
+                if vectors:
+                    self.dimension = len(vectors[0])
+                return vectors
             except Exception as exc:
                 logger.warning("Embedding failed, using deterministic fallback: %s", exc)
                 self.model = None
@@ -98,6 +101,10 @@ class DenseRetriever:
                     gram_bucket = int.from_bytes(gram_digest[:4], "big") % self.dimension
                     vector[gram_bucket] += 0.25 if gram_digest[4] & 1 else -0.25
         return self._normalize(vector)
+
+    @staticmethod
+    def _fingerprint(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _normalize(vector: list[float]) -> list[float]:

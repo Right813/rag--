@@ -26,7 +26,12 @@ def _services(request: Request):
 @router.post("/chat", response_model=ChatResponse)
 def chat(payload: ChatRequest, request: Request) -> ChatResponse:
     try:
-        return _services(request).qa_service.chat(payload.query, payload.session_id)
+        return _services(request).qa_service.chat(
+            payload.query,
+            payload.session_id,
+            access_levels=payload.access_levels,
+            department=payload.department,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except Exception as exc:
@@ -62,6 +67,9 @@ def knowledge_stats(request: Request) -> dict:
             "database": app_state.database.backend,
             "cache": app_state.cache.backend,
             "knowledge_graph": "neo4j" if app_state.neo4j_client.available else "memory",
+            "vector_store": getattr(app_state.document_service.retriever, "vector_store_provider", "local"),
+            "vector_status": getattr(app_state.document_service.retriever, "vector_status", "unavailable"),
+            "collection": getattr(app_state.document_service.retriever, "collection_name", ""),
             "llm": app_state.llm_service.status,
         },
     }
@@ -224,7 +232,12 @@ def _clear_document_cache(request: Request) -> None:
 @router.post("/chat/stream")
 def chat_stream(payload: ChatRequest, request: Request):
     try:
-        response = _services(request).qa_service.chat(payload.query, payload.session_id)
+        response = _services(request).qa_service.chat(
+            payload.query,
+            payload.session_id,
+            access_levels=payload.access_levels,
+            department=payload.department,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -248,6 +261,7 @@ async def upload_document(
     request: Request,
     file: UploadFile = File(...),
     department: str = Form(default=""),
+    category: str = Form(default="medical_document"),
     access_level: str = Form(default="internal"),
     version: str | None = Form(default=None),
     x_admin_token: str | None = Header(default=None),
@@ -260,6 +274,7 @@ async def upload_document(
             file.filename or "",
             content,
             department=department,
+            category=category,
             access_level=access_level,
             version=version,
         )
@@ -270,6 +285,45 @@ async def upload_document(
     except Exception as exc:
         logger.exception("Document upload failed: %s", exc)
         raise HTTPException(status_code=500, detail="文档处理失败，请检查文件格式") from exc
+
+
+@router.post("/documents/batch-upload")
+async def upload_documents(
+    request: Request,
+    files: list[UploadFile] = File(...),
+    department: str = Form(default=""),
+    category: str = Form(default="medical_document"),
+    access_level: str = Form(default="internal"),
+    x_admin_token: str | None = Header(default=None),
+) -> dict:
+    app_state = _services(request)
+    _require_admin(app_state.settings.admin_token, x_admin_token)
+    if not files:
+        raise HTTPException(status_code=422, detail="至少上传一个文件")
+    if len(files) > 50:
+        raise HTTPException(status_code=413, detail="单次最多上传 50 个文件")
+    payloads = []
+    total_size = 0
+    try:
+        for file in files:
+            content = await file.read()
+            total_size += len(content)
+            if total_size > int(app_state.settings.max_upload_size_bytes) * 50:
+                raise ValueError("批量文件总大小超出限制")
+            payloads.append({"filename": file.filename or "", "content": content})
+        records = _documents(request).upload_many(
+            payloads,
+            department=department,
+            category=category,
+            access_level=access_level,
+        )
+        _clear_document_cache(request)
+        return {"status": "ok", "documents": [record.to_dict() for record in records], "total": len(records)}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Batch document upload failed: %s", exc)
+        raise HTTPException(status_code=500, detail="批量文档处理失败") from exc
 
 
 @router.get("/documents/stats")
@@ -297,9 +351,12 @@ def document_detail(document_id: str, request: Request) -> dict:
     chunks = [
         {
             "chunk_id": chunk.chunk_id,
+            "title": chunk.title,
+            "category": chunk.category,
             "page": chunk.page,
             "chapter": chunk.chapter,
             "section": chunk.section,
+            "chunk_index": chunk.chunk_index,
             "preview": chunk.content[:280],
         }
         for chunk in service.chunks.get(document_id, [])
@@ -332,14 +389,30 @@ def reindex_document(document_id: str, request: Request, x_admin_token: str | No
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+@router.post("/documents/{document_id}/activate")
+def activate_document(document_id: str, request: Request, x_admin_token: str | None = Header(default=None)) -> dict:
+    app_state = _services(request)
+    _require_admin(app_state.settings.admin_token, x_admin_token)
+    try:
+        record = _documents(request).activate(document_id)
+        _clear_document_cache(request)
+        return {"status": "ok", "document": record.to_dict()}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 @router.post("/retrieval/search")
 def retrieval_search(payload: RetrievalSearchRequest, request: Request) -> dict:
     data = payload
     results = _documents(request).search(
         data.query,
         top_k=data.top_k,
+        mode=data.mode,
         strategy=data.strategy,
         access_levels=set(data.access_levels),
+        department=data.department,
         rerank=data.rerank,
     )
     service = _documents(request)
@@ -350,8 +423,12 @@ def retrieval_search(payload: RetrievalSearchRequest, request: Request) -> dict:
         "retrieval": {
             "fusion": len(results),
             "reranked": len(results) if data.rerank else 0,
+            "mode": data.mode,
             "strategy": data.strategy or getattr(service.settings, "fusion_strategy", "rrf"),
             "dense_provider": service.retriever.dense_provider,
+            "sparse_provider": service.retriever.sparse_provider,
+            "vector_store": service.retriever.vector_store_provider,
+            "vector_status": service.retriever.vector_status,
             "reranker_provider": service.retriever.reranker_provider,
         },
     }

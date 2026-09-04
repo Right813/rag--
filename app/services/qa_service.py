@@ -38,7 +38,13 @@ class QAService:
         self.total_latency_ms = 0.0
         self._metrics_lock = threading.Lock()
 
-    def chat(self, query: str, session_id: str | None = None) -> ChatResponse:
+    def chat(
+        self,
+        query: str,
+        session_id: str | None = None,
+        access_levels: list[str] | None = None,
+        department: str | None = None,
+    ) -> ChatResponse:
         cleaned_query = " ".join(query.strip().split())
         if not cleaned_query:
             raise ValueError("问题不能为空")

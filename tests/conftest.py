@@ -12,6 +12,8 @@ def client(tmp_path):
         fallback_database_path=str(tmp_path / "fallback.db"),
         redis_enabled=False,
         neo4j_enabled=False,
+        milvus_enabled=False,
+        embedding_model="",
         llm_base_url="",
         admin_token="",
         knowledge_store_path=str(tmp_path / "knowledge_store.json"),

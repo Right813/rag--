@@ -3,8 +3,11 @@ from typing import Any
 
 
 class QueryProcessor:
+    def normalize(self, query: str) -> str:
+        return " ".join(query.strip().split())
+
     def rewrite(self, query: str, history: list[dict[str, Any]]) -> str:
-        cleaned = " ".join(query.strip().split())
+        cleaned = self.normalize(query)
         if not history or not self._is_follow_up(cleaned):
             return cleaned
         previous = next(

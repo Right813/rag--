@@ -1,5 +1,4 @@
 # 可选的本地高质量模型与 OCR 能力；不安装也可使用内置哈希向量和词法精排降级模式。
 sentence-transformers>=3.3,<6.0
-faiss-cpu>=1.9,<2.0
 paddleocr>=2.9,<3.0
 paddlepaddle>=2.6,<3.0

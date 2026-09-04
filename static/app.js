@@ -87,26 +87,26 @@ async function sendQuery(queryOverride) {
   }
   state.loading = true;
   state.messages.push({ role: "user", content: query });
+  const assistantMessage = { role: "assistant", content: "" };
+  state.messages.push(assistantMessage);
   elements.queryInput.value = "";
   resizeInput();
   updateCharacterCount();
   toggleLoading(true);
   renderMessages();
   try {
-    const response = await fetch("/api/v1/chat", {
+    const response = await fetch("/api/v1/chat/stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, session_id: state.sessionId }),
     });
-    const payload = await response.json();
-    if (!response.ok) throw new Error(payload.detail || "问答服务暂时不可用");
-    state.sessionId = payload.session_id || state.sessionId;
-    localStorage.setItem("knowledge-answer-session", state.sessionId);
-    state.messages.push({ role: "assistant", content: payload.answer, ...payload });
-    renderEvidence(payload);
-    updateStats();
+    if (!response.ok) {
+      const payload = await response.json();
+      throw new Error(payload.detail || "问答服务暂时不可用");
+    }
+    await consumeChatStream(response, assistantMessage);
   } catch (error) {
-    state.messages.push({ role: "assistant", content: `抱歉，${error.message || "服务暂时不可用"}。` });
+    assistantMessage.content = `抱歉，${error.message || "服务暂时不可用"}。`;
     showToast("请求未完成，请检查服务状态");
   } finally {
     state.loading = false;
@@ -114,6 +114,44 @@ async function sendQuery(queryOverride) {
     updateSessionLabel();
     renderMessages();
   }
+}
+
+async function consumeChatStream(response, assistantMessage) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let completed = false;
+  const handleEvent = (block) => {
+    const lines = block.split("\n");
+    const eventName = lines.find((line) => line.startsWith("event:"))?.slice(6).trim();
+    const dataLine = lines.find((line) => line.startsWith("data:"));
+    if (!eventName || !dataLine) return;
+    const payload = JSON.parse(dataLine.slice(5).trim());
+    if (eventName === "meta") {
+      state.sessionId = payload.session_id || state.sessionId;
+      localStorage.setItem("knowledge-answer-session", state.sessionId);
+    }
+    if (eventName === "token") {
+      assistantMessage.content += payload.text || "";
+      renderMessages();
+    }
+    if (eventName === "done") {
+      Object.assign(assistantMessage, payload, { role: "assistant", content: payload.answer || assistantMessage.content });
+      renderEvidence(payload);
+      updateStats();
+      completed = true;
+    }
+  };
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+    const blocks = buffer.split("\n\n");
+    buffer = blocks.pop() || "";
+    blocks.filter(Boolean).forEach(handleEvent);
+    if (done) break;
+  }
+  if (buffer.trim()) handleEvent(buffer.trim());
+  if (!completed) throw new Error("问答流意外结束");
 }
 
 function toggleLoading(loading) {

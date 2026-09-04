@@ -6,8 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.document.service import DocumentService
-from app.rag.citations import build_citations
-from app.rag.context import ContextBuilder
+from app.rag.pipeline import RAGPipeline
 from app.rag.query import QueryProcessor
 from app.schemas.chat import ChatResponse, Entity, IntentInfo
 from app.schemas.rag import RetrievalSummary
@@ -19,12 +18,18 @@ logger = logging.getLogger(__name__)
 def install_document_qa(qa_class: type) -> None:
     original_chat = qa_class.chat
 
-    def document_aware_chat(self, query: str, session_id: str | None = None) -> ChatResponse:
+    def document_aware_chat(
+        self,
+        query: str,
+        session_id: str | None = None,
+        access_levels: list[str] | None = None,
+        department: str | None = None,
+    ) -> ChatResponse:
         service = _get_document_service(self)
         if service is None or not service.has_active_documents():
             return original_chat(self, query, session_id)
         try:
-            return _chat_documents(self, service, query, session_id)
+            return _chat_documents(self, service, query, session_id, access_levels or [], department)
         except Exception:
             logger.exception("Document RAG failed, falling back to graph RAG")
             return original_chat(self, query, session_id)
@@ -58,7 +63,14 @@ def _get_document_service(qa_service: Any) -> DocumentService | None:
     return service
 
 
-def _chat_documents(qa_service: Any, document_service: DocumentService, query: str, session_id: str | None) -> ChatResponse:
+def _chat_documents(
+    qa_service: Any,
+    document_service: DocumentService,
+    query: str,
+    session_id: str | None,
+    access_levels: list[str],
+    department: str | None,
+) -> ChatResponse:
     cleaned_query = " ".join(query.strip().split())
     if not cleaned_query:
         raise ValueError("问题不能为空")
@@ -67,12 +79,13 @@ def _chat_documents(qa_service: Any, document_service: DocumentService, query: s
     actual_session_id = session_id or uuid.uuid4().hex[:16]
     started_at = time.perf_counter()
     history = qa_service.database.get_messages(actual_session_id, limit=10)
-    rewritten_query = QueryProcessor().rewrite(cleaned_query, history)
+    query_processor = QueryProcessor()
+    rewritten_query = query_processor.rewrite(cleaned_query, history)
     qa_service.database.save_conversation(actual_session_id, cleaned_query[:40])
     qa_service.database.save_message(actual_session_id, "user", cleaned_query)
-    entities_data = qa_service.entity_service.extract(cleaned_query)
-    intent_data = qa_service.intent_service.classify(cleaned_query, entities_data)
-    cache_key = _cache_key(rewritten_query, intent_data)
+    entities_data = qa_service.entity_service.extract(rewritten_query)
+    intent_data = qa_service.intent_service.classify(rewritten_query, entities_data)
+    cache_key = _cache_key(rewritten_query, intent_data, access_levels, department)
     cached = qa_service.cache.get_json(cache_key)
     if cached:
         response = ChatResponse.model_validate(cached)
@@ -83,44 +96,51 @@ def _chat_documents(qa_service: Any, document_service: DocumentService, query: s
         qa_service._record_metric(response.latency_ms)
         return response
 
-    candidates = document_service.search(
-        rewritten_query,
-        top_k=max(20, getattr(qa_service.settings, "retrieval_top_k", 5) * 4),
-        rerank=True,
+    pipeline_result = RAGPipeline(
+        qa_service.settings,
+        document_service,
+        qa_service.entity_service,
+        qa_service.intent_service,
+        qa_service.llm_service,
+    ).run(
+        cleaned_query,
+        history,
+        access_levels=access_levels,
+        department=department,
     )
-    if document_service.has_relevant_user_result(candidates):
-        user_candidates = [item for item in candidates if item.chunk.source == "document"]
-        context = ContextBuilder(getattr(qa_service.settings, "max_context_tokens", 6000)).build(user_candidates)
-        citations = build_citations(context.results)
-        answer_result = qa_service.llm_service.generate_with_context(cleaned_query, context.text, citations)
-        evidence = [_result_to_evidence(item) for item in context.results]
-        retrieval = RetrievalSummary(
-            dense=len(candidates),
-            bm25=len(candidates),
-            fusion=len(candidates),
-            reranked=len(context.results),
-            strategy=getattr(qa_service.settings, "fusion_strategy", "rrf"),
-            dense_provider=document_service.retriever.dense_provider,
-            reranker_provider=document_service.retriever.reranker_provider,
+    rewritten_query = pipeline_result.rewritten_query
+    entities_data = pipeline_result.entities
+    intent_data = pipeline_result.intent
+    candidates = pipeline_result.candidates
+    if pipeline_result.graph_fallback:
+        return _graph_fallback(
+            qa_service,
+            cleaned_query,
+            actual_session_id,
+            started_at,
+            entities_data,
+            intent_data,
+            rewritten_query,
         )
-    elif not entities_data:
-        citations = []
-        evidence = []
-        answer_result = AnswerResult(
-            answer="当前知识库中没有检索到足够可靠的相关信息，因此无法给出确定答案。",
-            grounded=False,
-            model="no-answer",
-        )
-        retrieval = RetrievalSummary(
-            dense=len(candidates),
-            bm25=len(candidates),
-            fusion=len(candidates),
-            strategy=getattr(qa_service.settings, "fusion_strategy", "rrf"),
-            dense_provider=document_service.retriever.dense_provider,
-            reranker_provider=document_service.retriever.reranker_provider,
-        )
-    else:
-        return _graph_fallback(qa_service, cleaned_query, actual_session_id, started_at, entities_data, intent_data, rewritten_query)
+    citations = pipeline_result.citations or []
+    answer_result = pipeline_result.answer or AnswerResult(
+        answer="当前知识库中没有检索到足够可靠的相关信息，因此无法给出确定答案。",
+        grounded=False,
+        model="no-answer",
+    )
+    context_results = pipeline_result.context.results if pipeline_result.context else []
+    evidence = [_result_to_evidence(item) for item in context_results]
+    retrieval = RetrievalSummary(
+        dense=len(candidates),
+        bm25=len(candidates),
+        fusion=len(candidates),
+        reranked=len(context_results),
+        strategy=getattr(qa_service.settings, "fusion_strategy", "rrf"),
+        dense_provider=document_service.retriever.dense_provider,
+        sparse_provider=document_service.retriever.sparse_provider,
+        vector_store=document_service.retriever.vector_store_provider,
+        reranker_provider=document_service.retriever.reranker_provider,
+    )
 
     latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
     response = ChatResponse(
@@ -194,6 +214,7 @@ def _result_to_evidence(result: Any) -> dict[str, Any]:
         "document_id": chunk.document_id,
         "filename": chunk.filename,
         "version": chunk.version,
+        "category": chunk.category,
         "page": chunk.page,
         "chapter": chunk.chapter,
         "section": chunk.section,
@@ -201,6 +222,12 @@ def _result_to_evidence(result: Any) -> dict[str, Any]:
     }
 
 
-def _cache_key(query: str, intent: dict) -> str:
-    raw = f"{query}|{intent['name']}"
+def _cache_key(
+    query: str,
+    intent: dict,
+    access_levels: list[str] | None = None,
+    department: str | None = None,
+) -> str:
+    levels = ",".join(sorted(set(access_levels or [])))
+    raw = f"{query}|{intent['name']}|{levels}|{department or ''}"
     return "qa:doc:v1:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()

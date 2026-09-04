@@ -73,11 +73,13 @@ class DocumentParser:
         document = Document(path)
         paragraphs = [paragraph.text for paragraph in document.paragraphs if paragraph.text.strip()]
         for table_index, table in enumerate(document.tables, start=1):
-            rows = []
+            rows: list[list[str]] = []
             for row in table.rows:
-                rows.append(" | ".join(cell.text.strip() for cell in row.cells))
+                values = [cell.text.strip() for cell in row.cells]
+                if any(values):
+                    rows.append(values)
             if rows:
-                paragraphs.append(f"表格 {table_index}\n" + "\n".join(rows))
+                paragraphs.append(f"表格 {table_index}\n" + _format_table(rows))
         return [ParsedPage(content="\n".join(paragraphs), page=1)]
 
     @staticmethod
@@ -90,13 +92,18 @@ class DocumentParser:
         pages: list[ParsedPage] = []
         try:
             for sheet in workbook.worksheets:
-                rows = []
+                rows: list[list[str]] = []
                 for row in sheet.iter_rows(values_only=True):
                     values = [str(value).strip() for value in row if value is not None and str(value).strip()]
                     if values:
-                        rows.append(" | ".join(values))
+                        rows.append(values)
                 if rows:
-                    pages.append(ParsedPage(content=f"工作表：{sheet.title}\n" + "\n".join(rows), page=len(pages) + 1))
+                    pages.append(
+                        ParsedPage(
+                            content=f"工作表：{sheet.title}\n{_format_table(rows)}",
+                            page=len(pages) + 1,
+                        )
+                    )
         finally:
             workbook.close()
         if not pages:
@@ -145,6 +152,23 @@ class DocumentParser:
             logger.exception("PDF OCR failed")
             return ""
 
+
+def _format_table(rows: list[list[str]]) -> str:
+    if not rows:
+        return ""
+    headers = rows[0]
+    formatted = []
+    for row_index, row in enumerate(rows[1:], start=1):
+        if len(headers) > 1 and len(row) == len(headers):
+            formatted.append(
+                f"第{row_index}行："
+                + "；".join(f"{header or f'列{column_index + 1}'}：{value}" for column_index, (header, value) in enumerate(zip(headers, row)))
+            )
+        else:
+            formatted.append(" | ".join(row))
+    if len(rows) == 1:
+        return " | ".join(headers)
+    return "\n".join(formatted)
 
 def detect_structure(text: str, current_chapter: str = "", current_section: str = "") -> tuple[str, str]:
     value = re.sub(r"\s+", " ", text.strip())

@@ -50,6 +50,7 @@ class DocumentService:
         filename: str,
         content: bytes,
         department: str = "",
+        category: str = "medical_document",
         access_level: str = "internal",
         version: str | None = None,
     ) -> DocumentRecord:
@@ -70,6 +71,7 @@ class DocumentService:
             size_bytes=len(content),
             raw_path=str(raw_path),
             department=department.strip()[:100],
+            category=category.strip()[:100] or "medical_document",
             access_level=access_level.strip()[:40] or "internal",
         )
         with self._lock:
@@ -88,6 +90,27 @@ class DocumentService:
             self._rebuild_index()
         return record
 
+    def upload_many(
+        self,
+        files: list[dict[str, Any]],
+        department: str = "",
+        category: str = "medical_document",
+        access_level: str = "internal",
+    ) -> list[DocumentRecord]:
+        records: list[DocumentRecord] = []
+        for item in files:
+            records.append(
+                self.upload(
+                    str(item.get("filename") or ""),
+                    bytes(item.get("content") or b""),
+                    department=department,
+                    category=category,
+                    access_level=access_level,
+                    version=item.get("version"),
+                )
+            )
+        return records
+
     def reindex(self, document_id: str) -> DocumentRecord:
         with self._lock:
             record = self._get_record(document_id)
@@ -103,6 +126,25 @@ class DocumentService:
                 self._persist()
                 self._rebuild_index()
                 raise DocumentParseError(record.error) from exc
+            self._archive_same_filename(record.filename, exclude_document_id=document_id)
+            self._persist()
+            self._rebuild_index()
+            return record
+
+    def activate(self, document_id: str) -> DocumentRecord:
+        with self._lock:
+            record = self._get_record(document_id)
+            if record.status == "failed":
+                raise DocumentParseError("失败文档不能激活，请先重新索引")
+            if not self.chunks.get(document_id):
+                self._index_record(record)
+            record.status = "active"
+            record.error = None
+            record.updated_at = utc_now()
+            for chunk in self.chunks.get(document_id, []):
+                chunk.status = "active"
+                chunk.updated_at = record.updated_at
+            self._archive_same_filename(record.filename, exclude_document_id=document_id)
             self._persist()
             self._rebuild_index()
             return record
@@ -140,19 +182,41 @@ class DocumentService:
         strategy: str | None = None,
         include_legacy: bool = True,
         access_levels: set[str] | None = None,
+        department: str | None = None,
         rerank: bool = True,
+        mode: str = "hybrid",
     ) -> list[RetrievalResult]:
         with self._lock:
             if not self.initialized:
                 return []
             requested_top_k = top_k or self.settings.retrieval_top_k
             candidate_top_k = max(requested_top_k * 4, requested_top_k)
-            results = self.retriever.search(query, top_k=candidate_top_k, strategy=strategy, rerank=rerank)
-            allowed = access_levels or set()
+            allowed = {item.strip() for item in (access_levels or set()) if item.strip()}
+            filter_expression = _milvus_filter(
+                include_legacy=include_legacy,
+                access_levels=allowed,
+                department=department,
+            )
+            results = self.retriever.search(
+                query,
+                top_k=candidate_top_k,
+                strategy=strategy,
+                rerank=rerank,
+                filter_expression=filter_expression,
+                mode=mode,
+            )
             if not include_legacy:
                 results = [item for item in results if item.chunk.source == "document"]
             if allowed:
                 results = [item for item in results if item.chunk.access_level in allowed or item.chunk.source == "medical_kg"]
+            if department:
+                normalized_department = department.casefold().strip()
+                results = [
+                    item
+                    for item in results
+                    if item.chunk.source == "medical_kg"
+                    or item.chunk.department.casefold() == normalized_department
+                ]
             return results[:requested_top_k]
 
     def has_active_documents(self) -> bool:
@@ -173,7 +237,11 @@ class DocumentService:
                 "chunks": sum(len(items) for items in self.chunks.values()),
                 "by_status": by_status,
                 "dense_provider": self.retriever.dense_provider,
-                "sparse_provider": "bm25",
+                "sparse_provider": self.retriever.sparse_provider,
+                "vector_store": self.retriever.vector_store_provider,
+                "vector_status": self.retriever.vector_status,
+                "collection": self.retriever.collection_name,
+                "embedding_dimension": self.retriever.dense.dimension,
                 "fusion_strategy": getattr(self.settings, "fusion_strategy", "rrf"),
                 "reranker_provider": self.retriever.reranker_provider,
             }
@@ -191,13 +259,17 @@ class DocumentService:
         record.status = "active"
         record.error = None
         record.updated_at = utc_now()
+        for chunk in parsed_chunks:
+            chunk.status = record.status
+            chunk.updated_at = record.updated_at
         self.chunks[record.document_id] = parsed_chunks
 
     def _rebuild_index(self) -> None:
         active_chunks = [
             chunk
             for document_id, document_chunks in self.chunks.items()
-            if self.documents.get(document_id, DocumentRecord("", "", "", "", 0, "")).status == "active"
+            if self.documents.get(document_id) is not None
+            and self.documents[document_id].status == "active"
             for chunk in document_chunks
         ]
         active_chunks.extend(self._legacy_chunks())
@@ -218,10 +290,14 @@ class DocumentService:
                     filename="内置医疗示例知识库",
                     version="v1",
                     file_type="json",
+                    title="内置医疗示例知识库",
+                    category="medical_kg",
                     chapter="内置知识",
                     section=relation_label,
                     access_level="internal",
                     source="medical_kg",
+                    chunk_index=index,
+                    status="active",
                     entity=relation["source"],
                     relation=relation["relation"],
                     value=relation["target"],
@@ -270,6 +346,13 @@ class DocumentService:
             ):
                 record.status = "archived"
                 record.updated_at = utc_now()
+                for chunk in self.chunks.get(record.document_id, []):
+                    chunk.status = "archived"
+                    chunk.updated_at = record.updated_at
+
+    def close(self) -> None:
+        with self._lock:
+            self.retriever.close()
 
     def _next_version(self, filename: str) -> str:
         versions = []
@@ -338,3 +421,23 @@ def _relation_label(relation: str) -> str:
         "HAS_EFFECT": "药物作用",
         "HAS_USAGE": "使用方式",
     }.get(relation, relation)
+
+
+def _milvus_filter(
+    include_legacy: bool,
+    access_levels: set[str],
+    department: str | None,
+) -> str:
+    clauses = []
+    if not include_legacy:
+        clauses.append('source == "document"')
+    if access_levels:
+        values = ", ".join(json.dumps(value, ensure_ascii=False) for value in sorted(access_levels))
+        if include_legacy:
+            clauses.append(f'(source == "medical_kg" or access_level in [{values}])')
+        else:
+            clauses.append(f"access_level in [{values}]")
+    if department and department.strip():
+        value = json.dumps(department.strip(), ensure_ascii=False)
+        clauses.append(f'(source == "medical_kg" or department == {value})')
+    return " and ".join(clauses)

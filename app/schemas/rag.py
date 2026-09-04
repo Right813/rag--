@@ -8,6 +8,7 @@ class Citation(BaseModel):
     document: str
     filename: str
     version: str = "v1"
+    category: str = "medical_document"
     page: int | None = None
     chapter: str = ""
     section: str = ""
@@ -23,19 +24,24 @@ class RetrievalSummary(BaseModel):
     reranked: int = 0
     strategy: str = "rrf"
     dense_provider: str = "hash"
+    sparse_provider: str = "bm25-local"
+    vector_store: str = "local"
     reranker_provider: str = "lexical"
 
 
 class RetrievalSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     top_k: int = Field(default=5, ge=1, le=50)
+    mode: str = Field(default="hybrid", pattern="^(dense|bm25|hybrid)$")
     strategy: str | None = Field(default=None, pattern="^(rrf|weighted)$")
     access_levels: list[str] = Field(default_factory=list)
+    department: str | None = Field(default=None, max_length=100)
     rerank: bool = True
 
 
 class DocumentUploadMetadata(BaseModel):
     department: str = Field(default="", max_length=100)
+    category: str = Field(default="medical_document", max_length=100)
     access_level: str = Field(default="internal", max_length=40)
     version: str | None = Field(default=None, max_length=40)
 
