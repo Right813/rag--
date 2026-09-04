@@ -63,6 +63,10 @@ function renderMessage(message, index) {
 }
 
 function renderEvidence(response) {
+  if (typeof window.renderDocumentEvidence === "function") {
+    window.renderDocumentEvidence(response);
+    return;
+  }
   const evidence = response.evidence || [];
   elements.evidenceCount.textContent = `${evidence.length} 条`;
   elements.evidenceSubtitle.textContent = evidence.length ? `来自 ${response.intent.label}` : "本次未检索到直接证据";
@@ -147,7 +151,7 @@ async function loadHistory() {
     }));
     if (state.messages.length) {
       const lastAssistant = [...state.messages].reverse().find((message) => message.role === "assistant");
-      if (lastAssistant) renderEvidence({ evidence: lastAssistant.evidence, intent: lastAssistant.intent || { label: "上次检索" } });
+      if (lastAssistant) renderEvidence({ evidence: lastAssistant.evidence, citations: lastAssistant.citations, intent: lastAssistant.intent || { label: "上次检索" } });
       renderMessages();
     }
   } catch (_) {
@@ -239,7 +243,7 @@ elements.queryInput.addEventListener("keydown", (event) => {
 });
 elements.chatMessages.addEventListener("click", handleMessageAction);
 document.getElementById("newChatButton").addEventListener("click", startNewChat);
-document.getElementById("knowledgeNav").addEventListener("click", () => showToast("知识概览数据已显示在顶部"));
+document.getElementById("knowledgeNav").addEventListener("click", () => document.getElementById("documentsPanel").scrollIntoView({ behavior: "smooth", block: "start" }));
 document.getElementById("docsNav").addEventListener("click", () => window.open("/docs", "_blank", "noopener"));
 document.getElementById("mobileMenu").addEventListener("click", () => document.getElementById("sidebar").classList.toggle("mobile-open"));
 

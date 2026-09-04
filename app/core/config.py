@@ -38,6 +38,22 @@ class Settings(BaseSettings):
     cors_origins: str = "*"
     max_query_length: int = 500
     fallback_database_path: str = "data/rag_kg_fallback.db"
+
+    document_storage_path: str = "data/documents.json"
+    document_upload_dir: str = "data/uploads"
+    max_upload_size_bytes: int = 20 * 1024 * 1024
+    chunk_size: int = 600
+    chunk_overlap: int = 80
+    embedding_model: str = ""
+    reranker_model: str = ""
+    dense_top_k: int = 20
+    bm25_top_k: int = 20
+    retrieval_top_k: int = 5
+    fusion_strategy: str = "rrf"
+    fusion_alpha: float = Field(default=0.7, ge=0, le=1)
+    max_context_tokens: int = 6000
+    no_answer_threshold: float = Field(default=0.14, ge=0, le=1)
+    ocr_enabled: bool = True
     knowledge_store_path: str = "data/knowledge_store.json"
 
     model_config = SettingsConfigDict(

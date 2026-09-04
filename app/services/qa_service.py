@@ -8,7 +8,7 @@ from app.core.config import Settings
 from app.db.mysql import Database
 from app.db.redis import Cache
 from app.kg.repository import KnowledgeRepository
-from app.schemas.chat import ChatResponse, Entity, Evidence, IntentInfo
+from app.schemas.chat import ChatResponse, DocumentEvidence, Entity, IntentInfo
 from app.services.entity_service import EntityService
 from app.services.intent_service import IntentService
 from app.services.llm_service import LLMService
@@ -83,7 +83,7 @@ class QAService:
             answer=answer_result.answer,
             entities=[Entity(**entity) for entity in entities_data],
             intent=IntentInfo(**intent_data),
-            evidence=[Evidence(**item) for item in evidence_data],
+            evidence=[DocumentEvidence(**item) for item in evidence_data],
             grounded=answer_result.grounded,
             latency_ms=latency_ms,
             session_id=actual_session_id,
@@ -135,4 +135,6 @@ class QAService:
         entity_names = ",".join(item.get("canonical_name", item["text"]) for item in entities)
         raw = f"{query}|{entity_names}|{intent['name']}"
         return "qa:v1:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()
+from app.services.document_qa import install_document_qa
+install_document_qa(QAService)
 

@@ -7,6 +7,7 @@
   <meta name="description" content="知库智答：基于知识图谱的可解释企业知识库问答工作台">
   <title>知库智答 · 企业知识库</title>
   <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/documents.css">
 </head>
 <body>
   <div class="app-shell">
@@ -147,11 +148,21 @@
           </aside>
         </section>
 
+        <section class="documents-panel panel-card" id="documentsPanel">
+          <div class="documents-header">
+            <div class="panel-title"><div class="title-mark document-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h8l3 3v14h-11a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7"/><path d="M14 3.8v3h3M8 12h7M8 15.5h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div><div><h2>企业文档知识库</h2><span>上传制度、SOP、供应商资料，自动解析并建立混合索引</span></div></div>
+            <div class="document-actions"><label class="token-label">管理员凭证<input id="adminTokenInput" type="password" placeholder="按需填写" autocomplete="off"></label><label class="document-field">部门<input id="documentDepartmentInput" type="text" maxlength="100" placeholder="例如：采购部"></label><label class="document-field">访问级别<select id="documentAccessInput"><option value="internal">内部</option><option value="department">部门</option><option value="restricted">受限</option><option value="public">公开</option></select></label><label class="document-field">版本<input id="documentVersionInput" type="text" maxlength="40" placeholder="自动生成"></label><input id="documentUploadInput" type="file" accept=".pdf,.docx,.xlsx,.txt,.md,.markdown,.jpg,.jpeg,.png" hidden><button type="button" class="secondary-button" id="documentUploadButton">＋ 上传文档</button><button type="button" class="icon-button" id="documentRefreshButton" aria-label="刷新文档列表">↻</button></div>
+          </div>
+          <div class="document-summary"><div><span>已纳管文档</span><strong id="documentCount">0</strong></div><div><span>已建立切片</span><strong id="chunkCount">0</strong></div><div><span>检索引擎</span><strong id="retrievalProvider">BM25 · Hash</strong></div><div class="document-search"><input id="documentSearchInput" type="search" placeholder="搜索文档名称或部门"><span>⌕</span></div></div>
+          <div class="document-list" id="documentList"><div class="document-empty"><span class="document-empty-icon">＋</span><div><strong>还没有上传企业文档</strong><p>支持 PDF、DOCX、XLSX、TXT、Markdown 和图片 OCR</p></div><button type="button" class="text-button" id="documentEmptyUpload">立即上传</button></div></div>
+          <div class="document-note"><span>⌁</span> 文档会保留版本、页码、章节与访问级别；回答引用只来自检索元数据。</div>
+        </section>
         <footer class="page-footer"><span>知库智答 · Enterprise Knowledge Workspace</span><span>内容由结构化知识图谱提供依据</span></footer>
       </div>
     </main>
   </div>
   <div class="toast" id="toast" role="status"></div>
+  <script src="/static/document-ui.js"></script>
   <script src="/static/app.js"></script>
 </body>
 </html>

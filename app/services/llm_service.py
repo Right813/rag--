@@ -104,6 +104,7 @@ class LLMService:
                     f"当前知识库暂未找到与“{entity_name}”相关的{intent['label']}信息。"
                     "你可以换个问题，或联系知识库管理员补充资料。"
                 ),
+
                 grounded=False,
                 model="grounded-fallback",
             )
@@ -117,4 +118,67 @@ class LLMService:
             answer += "药物和治疗方案请结合个人情况遵循医生或药品说明书。"
         answer += "以上内容来自当前知识库检索结果。"
         return AnswerResult(answer=answer, grounded=True, model="grounded-fallback")
+
+def _generate_with_context(self, question: str, context: str, citations: list[dict]) -> AnswerResult:
+    if not context.strip() or not citations:
+        return AnswerResult(
+            answer="当前知识库中没有检索到足够可靠的相关信息，因此无法给出确定答案。",
+            grounded=False,
+            model="no-answer",
+        )
+    fallback = _context_fallback(context)
+    if not self.settings.llm_configured:
+        return fallback
+    try:
+        answer = _call_context_model(self, question, context, citations)
+        if _context_answer_is_grounded(answer, citations):
+            return AnswerResult(answer=answer, grounded=True, model=self.settings.llm_model)
+    except Exception as exc:
+        logger.warning("Context generation failed, using grounded fallback: %s", exc)
+    return fallback
+
+
+def _call_context_model(self, question: str, context: str, citations: list[dict]) -> str:
+    endpoint = self.settings.llm_base_url.rstrip("/")
+    if not endpoint.endswith("/chat/completions"):
+        endpoint = f"{endpoint}/chat/completions"
+    citation_text = "\n".join(
+        f"[{index}] {item.get('document', '')} / 第{item.get('page')}页 / {item.get('section', '')}"
+        for index, item in enumerate(citations, start=1)
+    )
+    system_prompt = (
+        "你是企业内部文档知识库助手。只能依据给定上下文回答，不得补充上下文之外的事实。"
+        "如果证据不足，请明确说明信息不足。回答简洁中文，并在相关句子后使用 [1]、[2] 标注来源。"
+    )
+    payload = {
+        "model": self.settings.llm_model,
+        "temperature": 0.1,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": f"问题：{question}\n可用上下文：\n{context}\n来源：\n{citation_text}"},
+        ],
+    }
+    headers = {"Content-Type": "application/json"}
+    if self.settings.llm_api_key:
+        headers["Authorization"] = f"Bearer {self.settings.llm_api_key}"
+    with httpx.Client(timeout=self.settings.llm_timeout_seconds) as client:
+        response = client.post(endpoint, headers=headers, json=payload)
+        response.raise_for_status()
+    content = response.json()["choices"][0]["message"]["content"]
+    return self._clean_model_content(content)
+
+
+def _context_answer_is_grounded(answer: str, citations: list[dict]) -> bool:
+    if not answer or len(answer) > 2000:
+        return False
+    return any(f"[{index}]" in answer for index in range(1, len(citations) + 1))
+
+
+def _context_fallback(context: str) -> AnswerResult:
+    blocks = [item.strip() for item in context.split("\n\n") if item.strip()][:3]
+    answer = "根据知识库检索结果：\n" + "\n\n".join(blocks)
+    return AnswerResult(answer=answer[:2000], grounded=True, model="grounded-fallback")
+
+
+LLMService.generate_with_context = _generate_with_context
 

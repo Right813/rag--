@@ -4,7 +4,8 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, File, Header, HTTPException, Query, Request, UploadFile, status
+from fastapi import APIRouter, File, Form, Header, HTTPException, Query, Request, UploadFile, status
+from fastapi.responses import StreamingResponse
 
 from app.schemas.chat import (
     ChatRequest,
@@ -12,6 +13,7 @@ from app.schemas.chat import (
     FeedbackRequest,
     KnowledgeImportRequest,
 )
+from app.schemas.rag import RetrievalSearchRequest
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -72,6 +74,10 @@ def reload_knowledge(request: Request, x_admin_token: str | None = Header(defaul
     try:
         app_state.repository.initialize()
         app_state.cache.clear_prefix("qa:v1:")
+        app_state.cache.clear_prefix("qa:doc:v1:")
+        document_service = getattr(app_state.qa_service, "document_service", None)
+        if document_service is not None:
+            document_service.refresh_legacy()
         return {"status": "ok", "graph": app_state.repository.stats()}
     except Exception as exc:
         logger.exception("Knowledge reload failed: %s", exc)
@@ -92,6 +98,10 @@ def import_knowledge(
             [relation.model_dump() for relation in payload.relations],
         )
         app_state.cache.clear_prefix("qa:v1:")
+        app_state.cache.clear_prefix("qa:doc:v1:")
+        document_service = getattr(app_state.qa_service, "document_service", None)
+        if document_service is not None:
+            document_service.refresh_legacy()
         return {"status": "ok", "graph": result}
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -123,6 +133,10 @@ async def import_knowledge_file(
             [relation.model_dump() for relation in validated.relations],
         )
         app_state.cache.clear_prefix("qa:v1:")
+        app_state.cache.clear_prefix("qa:doc:v1:")
+        document_service = getattr(app_state.qa_service, "document_service", None)
+        if document_service is not None:
+            document_service.refresh_legacy()
         return {"status": "ok", "filename": filename, "graph": result}
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail=f"文件内容无效：{exc}") from exc
@@ -195,3 +209,149 @@ def _parse_import_file(content: bytes, suffix: str) -> dict:
             "relations": [],
         }
     raise ValueError("CSV 表头需包含实体列 name,type 或关系列 source,source_type,relation,target,target_type")
+
+
+def _documents(request: Request):
+    from app.services.document_qa import get_document_service
+
+    return get_document_service(_services(request).qa_service)
+
+
+def _clear_document_cache(request: Request) -> None:
+    _services(request).cache.clear_prefix("qa:doc:v1:")
+
+
+@router.post("/chat/stream")
+def chat_stream(payload: ChatRequest, request: Request):
+    try:
+        response = _services(request).qa_service.chat(payload.query, payload.session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    def events():
+        yield f"event: meta\ndata: {json.dumps({'session_id': response.session_id, 'message_id': response.message_id}, ensure_ascii=False)}\n\n"
+        answer = response.answer
+        for start in range(0, len(answer), 48):
+            yield f"event: token\ndata: {json.dumps({'text': answer[start:start + 48]}, ensure_ascii=False)}\n\n"
+        yield f"event: citations\ndata: {json.dumps({'citations': [item.model_dump() for item in response.citations]}, ensure_ascii=False, default=str)}\n\n"
+        yield f"event: done\ndata: {json.dumps(response.model_dump(mode='json'), ensure_ascii=False, default=str)}\n\n"
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@router.post("/documents/upload")
+async def upload_document(
+    request: Request,
+    file: UploadFile = File(...),
+    department: str = Form(default=""),
+    access_level: str = Form(default="internal"),
+    version: str | None = Form(default=None),
+    x_admin_token: str | None = Header(default=None),
+) -> dict:
+    app_state = _services(request)
+    _require_admin(app_state.settings.admin_token, x_admin_token)
+    try:
+        content = await file.read()
+        record = _documents(request).upload(
+            file.filename or "",
+            content,
+            department=department,
+            access_level=access_level,
+            version=version,
+        )
+        _clear_document_cache(request)
+        return {"status": "ok", "document": record.to_dict()}
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Document upload failed: %s", exc)
+        raise HTTPException(status_code=500, detail="文档处理失败，请检查文件格式") from exc
+
+
+@router.get("/documents/stats")
+def document_stats(request: Request) -> dict:
+    return _documents(request).stats()
+
+
+@router.get("/documents")
+def list_documents(
+    request: Request,
+    status_filter: str | None = Query(default=None, alias="status", max_length=20),
+    search: str | None = Query(default=None, max_length=100),
+) -> dict:
+    records = _documents(request).list(status=status_filter, search=search)
+    return {"items": [record.to_dict() for record in records], "total": len(records)}
+
+
+@router.get("/documents/{document_id}")
+def document_detail(document_id: str, request: Request) -> dict:
+    service = _documents(request)
+    try:
+        record = service.get(document_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    chunks = [
+        {
+            "chunk_id": chunk.chunk_id,
+            "page": chunk.page,
+            "chapter": chunk.chapter,
+            "section": chunk.section,
+            "preview": chunk.content[:280],
+        }
+        for chunk in service.chunks.get(document_id, [])
+    ]
+    return {"document": record.to_dict(), "chunks": chunks}
+
+
+@router.delete("/documents/{document_id}", status_code=204)
+def delete_document(document_id: str, request: Request, x_admin_token: str | None = Header(default=None)) -> None:
+    app_state = _services(request)
+    _require_admin(app_state.settings.admin_token, x_admin_token)
+    try:
+        _documents(request).delete(document_id)
+        _clear_document_cache(request)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/documents/{document_id}/reindex")
+def reindex_document(document_id: str, request: Request, x_admin_token: str | None = Header(default=None)) -> dict:
+    app_state = _services(request)
+    _require_admin(app_state.settings.admin_token, x_admin_token)
+    try:
+        record = _documents(request).reindex(document_id)
+        _clear_document_cache(request)
+        return {"status": "ok", "document": record.to_dict()}
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/retrieval/search")
+def retrieval_search(payload: RetrievalSearchRequest, request: Request) -> dict:
+    data = payload
+    results = _documents(request).search(
+        data.query,
+        top_k=data.top_k,
+        strategy=data.strategy,
+        access_levels=set(data.access_levels),
+        rerank=data.rerank,
+    )
+    service = _documents(request)
+    return {
+        "query": data.query,
+        "results": [item.to_dict() for item in results],
+        "total": len(results),
+        "retrieval": {
+            "fusion": len(results),
+            "reranked": len(results) if data.rerank else 0,
+            "strategy": data.strategy or getattr(service.settings, "fusion_strategy", "rrf"),
+            "dense_provider": service.retriever.dense_provider,
+            "reranker_provider": service.retriever.reranker_provider,
+        },
+    }

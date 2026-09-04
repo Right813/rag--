@@ -2,6 +2,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.rag import Citation, RetrievalSummary
+
 
 class Entity(BaseModel):
     text: str
@@ -26,6 +28,16 @@ class Evidence(BaseModel):
     description: str | None = None
 
 
+class DocumentEvidence(Evidence):
+    document_id: str | None = None
+    filename: str | None = None
+    version: str | None = None
+    page: int | None = None
+    chapter: str = ""
+    section: str = ""
+    score: float = 0.0
+
+
 class ChatRequest(BaseModel):
     query: str = Field(min_length=1, max_length=500)
     session_id: str | None = Field(default=None, max_length=64)
@@ -44,6 +56,17 @@ class ChatResponse(BaseModel):
     message_id: int | None = None
     model: str = "grounded-fallback"
     cached: bool = False
+
+
+class RAGChatResponse(ChatResponse):
+    evidence: list[DocumentEvidence] = Field(default_factory=list)
+    citations: list[Citation] = Field(default_factory=list)
+    retrieval: RetrievalSummary | None = None
+    rewritten_query: str | None = None
+    no_answer: bool = False
+
+
+ChatResponse = RAGChatResponse
 
 
 class HistoryMessage(BaseModel):

@@ -1,0 +1,13 @@
+{
+  "description": "内置医疗示例知识库的检索评测样例；上传企业文档后请替换为真实标注集。",
+  "questions": [
+    {"query": "高血压有哪些常见症状？", "relevant_chunk_ids": ["legacy-0", "legacy-1", "legacy-2"]},
+    {"query": "高血压相关的降压药有哪些？", "relevant_chunk_ids": ["legacy-3", "legacy-4"]},
+    {"query": "糖尿病需要做什么检查？", "relevant_chunk_ids": ["legacy-16", "legacy-17"]},
+    {"query": "糖尿病常见症状有哪些？", "relevant_chunk_ids": ["legacy-11", "legacy-12"]},
+    {"query": "感冒可以使用哪些药物？", "relevant_chunk_ids": ["legacy-22"]},
+    {"query": "感冒有哪些常见症状？", "relevant_chunk_ids": ["legacy-20", "legacy-21"]},
+    {"query": "氨氯地平有什么作用？", "relevant_chunk_ids": ["legacy-27"]},
+    {"query": "二甲双胍应该怎么使用？", "relevant_chunk_ids": ["legacy-30"]}
+  ]
+}
