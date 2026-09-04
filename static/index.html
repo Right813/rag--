@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0b172a">
+  <meta name="description" content="知库智答：基于知识图谱的可解释企业知识库问答工作台">
+  <title>知库智答 · 企业知识库</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none"><path d="M8 8.5A3.5 3.5 0 0 1 11.5 5H24a3 3 0 0 1 3 3v13.5a3.5 3.5 0 0 1-3.5 3.5H12a4 4 0 0 0-4 4V8.5Z" fill="currentColor" opacity=".95"/><path d="M8 24.5A3.5 3.5 0 0 1 11.5 21H27" stroke="#0B172A" stroke-width="2" stroke-linecap="round"/><path d="M13 10h9M13 14h6" stroke="#0B172A" stroke-width="2" stroke-linecap="round"/></svg>
+        </div>
+        <div>
+          <strong>知库智答</strong>
+          <span>KNOWLEDGE ANSWER</span>
+        </div>
+      </div>
+
+      <div class="sidebar-label">工作台</div>
+      <nav class="side-nav" aria-label="主导航">
+        <button class="nav-item active" type="button">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M7 10h10M7 14h6M5 19.5h14A2.5 2.5 0 0 0 21.5 17V7A2.5 2.5 0 0 0 19 4.5H5A2.5 2.5 0 0 0 2.5 7v10A2.5 2.5 0 0 0 5 19.5Z" stroke="currentColor" stroke-width="1.7"/><path d="m8 19.5 1.6 2h4.8l1.6-2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          <span>智能问答</span>
+          <em>LIVE</em>
+        </button>
+        <button class="nav-item" type="button" id="knowledgeNav">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="6" cy="6" r="2.5" stroke="currentColor" stroke-width="1.7"/><circle cx="18" cy="8" r="2.5" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="18" r="2.5" stroke="currentColor" stroke-width="1.7"/><path d="m8.3 7.1 7.4 1.8M7.5 8.3l3 7.3m6-5.3-3 5.3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          <span>知识概览</span>
+        </button>
+        <button class="nav-item" type="button" id="docsNav">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M6.5 3.5h8l3 3v14h-11a2 2 0 0 1-2-2v-13a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7"/><path d="M14 3.8v3h3M7.5 12h7M7.5 15.5h7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          <span>API 文档</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-label recent-label">最近会话</div>
+      <div class="recent-session">
+        <div class="recent-dot"></div>
+        <div>
+          <strong>知识库探索</strong>
+          <span id="sessionShortId">当前会话</span>
+        </div>
+      </div>
+
+      <div class="sidebar-bottom">
+        <div class="system-mini-card">
+          <div class="mini-status"><i id="miniStatusDot"></i><span>系统运行正常</span></div>
+          <span id="miniStatusText">正在检查服务状态...</span>
+        </div>
+        <div class="profile-row">
+          <div class="profile-avatar">K</div>
+          <div><strong>知识库管理员</strong><span>Workspace owner</span></div>
+          <button type="button" class="more-button" aria-label="更多选项">···</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button class="mobile-menu" id="mobileMenu" type="button" aria-label="打开菜单">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+        </button>
+        <div class="breadcrumb"><span>工作台</span><b>/</b><strong>智能问答</strong></div>
+        <div class="topbar-actions">
+          <span class="environment-badge"><i></i> LOCAL WORKSPACE</span>
+          <a href="/docs" target="_blank" rel="noreferrer" class="icon-button" aria-label="打开 API 文档">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 17v.01M12 14c1.6 0 3-1.1 3-2.7C15 9.7 13.7 8.5 12 8.5S9 9.7 9 11.3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/></svg>
+          </a>
+          <button class="new-chat-button" id="newChatButton" type="button"><span>＋</span> 新建会话</button>
+        </div>
+      </header>
+
+      <div class="content-wrap">
+        <section class="welcome-section">
+          <div class="eyebrow"><span class="eyebrow-line"></span> ENTERPRISE KNOWLEDGE SYSTEM</div>
+          <div class="welcome-row">
+            <div>
+              <h1>你好，今天想探索什么？</h1>
+              <p>让每一个答案都有依据，让每一次检索都更接近事实。</p>
+            </div>
+            <div class="welcome-decoration" aria-hidden="true">
+              <div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-core"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="metrics-grid" aria-label="系统概览">
+          <div class="metric-card">
+            <div class="metric-icon purple"><svg viewBox="0 0 24 24" fill="none"><path d="M5 5.5h14v13H5z" stroke="currentColor" stroke-width="1.7"/><path d="M8 9h8M8 12.5h5M8 16h7" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+            <div class="metric-copy"><span>知识节点</span><strong id="nodeCount">—</strong></div>
+            <div class="metric-trend"><i></i>已加载</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon teal"><svg viewBox="0 0 24 24" fill="none"><circle cx="6.5" cy="6.5" r="2.5" stroke="currentColor" stroke-width="1.7"/><circle cx="17.5" cy="17.5" r="2.5" stroke="currentColor" stroke-width="1.7"/><path d="m8.5 8.5 7 7M17.5 6.5h.01M6.5 17.5h.01" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div>
+            <div class="metric-copy"><span>知识关系</span><strong id="relationCount">—</strong></div>
+            <div class="metric-trend"><i></i>可追溯</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon orange"><svg viewBox="0 0 24 24" fill="none"><path d="M12 4v8l5 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.7"/></svg></div>
+            <div class="metric-copy"><span>平均响应</span><strong id="latencyValue">—</strong></div>
+            <div class="metric-trend"><i></i>实时统计</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-icon blue"><svg viewBox="0 0 24 24" fill="none"><path d="m5 12 4.2 4.2L19.5 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.5"/></svg></div>
+            <div class="metric-copy"><span>知识有据率</span><strong>100<span class="unit">%</span></strong></div>
+            <div class="metric-trend"><i></i>当前策略</div>
+          </div>
+        </section>
+
+        <section class="workspace-grid">
+          <div class="chat-panel panel-card">
+            <div class="panel-header">
+              <div class="panel-title"><div class="title-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M6.5 18.5h11A3.5 3.5 0 0 0 21 15V8.5A3.5 3.5 0 0 0 17.5 5h-11A3.5 3.5 0 0 0 3 8.5V15a3.5 3.5 0 0 0 3.5 3.5Z" stroke="currentColor" stroke-width="1.7"/><path d="M8 10h8M8 13.5h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg></div><div><h2>智能问答</h2><span>基于知识图谱的 grounded generation</span></div></div>
+              <div class="panel-actions"><span class="live-pill"><i></i>在线</span><button type="button" class="panel-more" aria-label="面板选项">···</button></div>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+              <div class="empty-chat" id="emptyChat">
+                <div class="empty-orb"><span></span><span></span><span></span></div>
+                <h3>从一个问题开始</h3>
+                <p>试试下面的快捷问题，或在输入框描述你的需求。</p>
+                <div class="suggestion-grid" id="suggestionGrid">
+                  <button type="button" class="suggestion-card" data-query="高血压有哪些常见症状？"><span class="suggestion-symbol rose">✦</span><span><b>高血压有哪些常见症状？</b><small>疾病 · 症状</small></span><em>→</em></button>
+                  <button type="button" class="suggestion-card" data-query="糖尿病需要做哪些检查？"><span class="suggestion-symbol violet">⌁</span><span><b>糖尿病需要做哪些检查？</b><small>疾病 · 检查</small></span><em>→</em></button>
+                  <button type="button" class="suggestion-card" data-query="感冒可以使用哪些药物？"><span class="suggestion-symbol amber">＋</span><span><b>感冒可以使用哪些药物？</b><small>疾病 · 用药</small></span><em>→</em></button>
+                  <button type="button" class="suggestion-card" data-query="氨氯地平有什么作用？"><span class="suggestion-symbol cyan">◌</span><span><b>氨氯地平有什么作用？</b><small>药物 · 作用</small></span><em>→</em></button>
+                </div>
+              </div>
+            </div>
+            <div class="composer-wrap">
+              <div class="composer" id="composer">
+                <textarea id="queryInput" rows="1" maxlength="500" placeholder="输入你的问题，例如：高血压有哪些常见症状？"></textarea>
+                <div class="composer-footer"><div class="composer-hint"><span class="kbd">⌘</span><span class="kbd">↵</span> 发送 <span class="separator"></span><span id="charCount">0 / 500</span></div><button type="button" class="send-button" id="sendButton" aria-label="发送问题"><svg viewBox="0 0 24 24" fill="none"><path d="m5 12 14-7-4.5 14-3-6-6.5-1Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M11.5 13 19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button></div>
+              </div>
+              <div class="composer-disclaimer"><span>✧</span> 知识库回答仅供信息参考，不替代专业诊断或建议</div>
+            </div>
+          </div>
+
+          <aside class="evidence-panel panel-card">
+            <div class="panel-header evidence-header"><div class="panel-title"><div class="title-mark evidence-mark"><svg viewBox="0 0 24 24" fill="none"><path d="M7 4.5h10v15H7z" stroke="currentColor" stroke-width="1.7"/><path d="M9.5 8h5M9.5 11.5h5M9.5 15h3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="m16 17 2 2 3-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg></div><div><h2>检索证据</h2><span id="evidenceSubtitle">等待下一次检索</span></div></div><span class="evidence-count" id="evidenceCount">0 条</span></div>
+            <div class="evidence-body" id="evidenceBody"><div class="evidence-empty"><div class="evidence-empty-icon">⌁</div><p>答案生成后<br>相关知识证据会显示在这里</p></div></div>
+            <div class="evidence-footer"><div><span class="footer-label">检索策略</span><strong><i></i> Knowledge Graph RAG</strong></div><span class="shield-icon">♢</span></div>
+          </aside>
+        </section>
+
+        <footer class="page-footer"><span>知库智答 · Enterprise Knowledge Workspace</span><span>内容由结构化知识图谱提供依据</span></footer>
+      </div>
+    </main>
+  </div>
+  <div class="toast" id="toast" role="status"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
+

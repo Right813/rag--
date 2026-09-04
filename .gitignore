@@ -1,0 +1,16 @@
+.env
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+data/*.db
+data/*.sqlite
+models/*
+!.gitkeep
+.idea/
+.vscode/
+*.log
+
