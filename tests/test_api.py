@@ -46,6 +46,18 @@ def test_unknown_question_is_not_invented(client):
     assert "暂时没有识别出" in payload["answer"]
 
 
+def test_greeting_uses_conversational_response(client):
+    response = client.post("/api/v1/chat", json={"query": "你好"})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["intent"]["name"] == "greeting"
+    assert payload["grounded"] is False
+    assert payload["no_answer"] is False
+    assert payload["evidence"] == []
+    assert payload["answer"].startswith("你好！")
+
+
 def test_import_validates_and_updates_local_knowledge(client):
     response = client.post(
         "/api/v1/knowledge/import",

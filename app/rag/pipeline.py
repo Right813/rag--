@@ -8,6 +8,7 @@ from app.rag.citations import build_citations
 from app.rag.context import Context, ContextBuilder
 from app.rag.query import QueryProcessor
 from app.retrieval.models import RetrievalResult
+from app.services.intent_service import CONVERSATIONAL_INTENTS
 from app.services.llm_service import AnswerResult, LLMService
 
 
@@ -51,6 +52,16 @@ class RAGPipeline:
         rewritten_query = self.query_processor.rewrite(normalized_query, history)
         entities = self.entity_service.extract(rewritten_query)
         intent = self.intent_service.classify(rewritten_query, entities)
+        if intent["name"] in CONVERSATIONAL_INTENTS:
+            return PipelineResult(
+                rewritten_query=rewritten_query,
+                entities=entities,
+                intent=intent,
+                candidates=[],
+                context=Context(text="", results=[], tokens=0),
+                citations=[],
+                answer=self.llm_service.generate(normalized_query, intent, entities, []),
+            )
         candidates = self.document_service.search(
             rewritten_query,
             top_k=max(20, getattr(self.settings, "retrieval_top_k", 5) * 4),

@@ -91,6 +91,18 @@ class LLMService:
         return any(item["value"] in answer for item in evidence)
 
     def _fallback_answer(self, question: str, intent: dict, entities: list[dict], evidence: list[dict]) -> AnswerResult:
+        conversational_answers = {
+            "greeting": "你好！我是知库智答，可以帮你检索和解读知识库中的医疗知识与企业文档。你可以直接问我，例如“高血压有哪些常见症状？”",
+            "thanks": "不客气！如果你还有疾病、药物、检查或知识库文档相关问题，随时可以继续问我。",
+            "farewell": "再见！需要查询知识库时，随时回来。",
+            "help": "我可以帮你查询知识库中的疾病症状、用药、检查、治疗和企业文档。你也可以上传文档后，直接询问其中的内容。",
+        }
+        if intent.get("name") in conversational_answers:
+            return AnswerResult(
+                answer=conversational_answers[intent["name"]],
+                grounded=False,
+                model="conversation",
+            )
         if not entities:
             return AnswerResult(
                 answer="我暂时没有识别出知识库中的明确实体。请试着输入疾病或药物名称，例如“高血压有哪些症状？”。",

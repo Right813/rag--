@@ -162,3 +162,21 @@ def test_stream_chat_respects_document_access_filters(tmp_path):
         )
         assert allowed.status_code == 200
         assert document_id in allowed.text
+
+
+def test_greeting_ignores_active_document_retrieval(tmp_path):
+    with _document_client(tmp_path) as client:
+        uploaded = client.post(
+            "/api/v1/documents/upload",
+            files={"file": ("greeting.txt", b"This document should not answer greetings.", "text/plain")},
+        )
+        assert uploaded.status_code == 200
+
+        response = client.post("/api/v1/chat", json={"query": "你好"})
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["intent"]["name"] == "greeting"
+        assert payload["no_answer"] is False
+        assert payload["citations"] == []
+        assert payload["answer"].startswith("你好！")

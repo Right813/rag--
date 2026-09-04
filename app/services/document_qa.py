@@ -155,7 +155,7 @@ def _chat_documents(
         citations=citations,
         retrieval=retrieval,
         rewritten_query=rewritten_query,
-        no_answer=not answer_result.grounded,
+        no_answer=not answer_result.grounded and answer_result.model != "conversation",
     )
     cached_payload = response.model_copy(deep=True)
     cached_payload.session_id = "cached"
